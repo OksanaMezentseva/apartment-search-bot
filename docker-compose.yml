@@ -1,0 +1,17 @@
+version: '3.8'  # Specify Docker Compose file format version
+
+services:
+  db:
+    image: ankane/pgvector  # PostgreSQL image with PGVector extension included
+    container_name: pgvector-db  # Name of the container
+    environment:
+      POSTGRES_USER: admin        # Database username
+      POSTGRES_PASSWORD: admin    # Database password
+      POSTGRES_DB: apartments_db  # Name of the default database
+    ports:
+      - "5432:5432"  # Expose PostgreSQL port on localhost
+    volumes:
+      - pgdata:/var/lib/postgresql/data  # Persist data between restarts
+
+volumes:
+  pgdata:  # Named volume for PostgreSQL data
