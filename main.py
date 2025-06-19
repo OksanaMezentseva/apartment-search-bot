@@ -55,7 +55,14 @@ def format_apartment(apartment: dict) -> str:
 # Handle /start command
 @dp.message(F.text == "/start")
 async def handle_start(message: Message):
-    await message.answer("👋 Hi! Just tell me what kind of apartment you're looking for, and I'll try to find it for you.")
+    await message.answer("👋 Hi! I can help you find an apartment.\n\n"
+        "💡 To get the best results, please include in your message:\n"
+        "📍 City or location (e.g. Lviv, Kyiv)\n"
+        "🛏️ Number of rooms or beds\n"
+        "⚙️ Important features (Wi-Fi, kitchen, parking, pool, etc.)\n"
+        "🐾 Preferences (pet-friendly, balcony, jacuzzi, near park, etc.)\n\n"
+        "📝 Example: 'Looking for an apartment in Lviv with 2 rooms, Wi-Fi, and parking.'"
+    )
 
 # Handle user messages
 @dp.message(F.text)
@@ -67,7 +74,15 @@ async def handle_user_request(message: Message):
     logger.info(f"🧠 GPT Function Result:\n{result}")
 
     if not result:
-        await message.answer("❌ Sorry, I couldn't understand your request.")
+        await message.answer(
+            "❌ I couldn't understand your request.\n\n"
+            "💡 To help me find the right apartment, try to include:\n"
+            "• City or location (e.g. Lviv, Kyiv)\n"
+            "• Number of rooms or beds\n"
+            "• Key features (Wi-Fi, kitchen, parking, pool, etc.)\n"
+            "• Special preferences (pet-friendly, balcony, jacuzzi, etc.)\n\n"
+            "Feel free to write in your own words — I'll do my best to understand!"
+                )
         return
 
     filters = result["arguments"]
