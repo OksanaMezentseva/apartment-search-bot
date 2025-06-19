@@ -73,20 +73,32 @@ def split_filters(filters: dict) -> Tuple[dict, List[str]]:
 def filters_to_embedding_text(filters: dict) -> str:
     parts = []
 
-    # Include known booleans
-    for field in ["has_wifi", "has_parking", "has_kitchen"]:
-        if filters.get(field):
-            parts.append(field.replace("has_", "").replace("_", " "))
-
     # Include numeric values
     for field in ["beds", "rooms", "floor"]:
         if field in filters:
             parts.append(f"{filters[field]} {field}")
 
-    # Include extra semantic fields
+    # Boolean handling
     for key, value in filters.items():
-        if value and (key.startswith("has_") or key.startswith("allows_")) and key not in {"has_wifi", "has_parking", "has_kitchen"}:
-            parts.append(key.replace("has_", "").replace("allows_", "").replace("_", " "))
+        if key in {"beds", "rooms", "floor"}:
+            continue
+
+        readable = key.replace("has_", "").replace("allows_", "").replace("_", " ")
+
+        if key.startswith("has_"):
+            if value:
+                parts.append(f"has {readable}")
+            else:
+                parts.append(f"no {readable}")
+
+        elif key.startswith("allows_"):
+            if value:
+                if readable in {"pets", "children", "kids"}:
+                    parts.append(f"{readable}-friendly")
+                else:
+                    parts.append(f"{readable} allowed")
+            else:
+                parts.append(f"{readable} not allowed")
 
     return ", ".join(parts)
 
