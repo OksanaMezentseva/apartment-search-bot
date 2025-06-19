@@ -3,7 +3,7 @@ import asyncpg
 import os
 import json
 from dotenv import load_dotenv
-from openai import OpenAI  # new-style client
+from openai import OpenAI
 
 # Load environment variables from .env
 load_dotenv()
@@ -31,14 +31,16 @@ async def populate_database():
     # Connect to PostgreSQL database
     conn = await asyncpg.connect(**DB_SETTINGS)
 
-    for apt in apartments:
-        # Generate embedding using the OpenAI client (new API)
+    for i, apt in enumerate(apartments, start=1):
+        # Generate embedding using OpenAI
         response = client.embeddings.create(
             model="text-embedding-3-small",
             input=apt["description"]
         )
         embedding = response.data[0].embedding
-        embedding = "[" + ",".join([str(x) for x in embedding]) + "]"
+
+        # Convert list to string format compatible with PostgreSQL pgvector: '[0.1, 0.2, ...]'
+        embedding_str = f"[{','.join(map(str, embedding))}]"
 
         # Insert apartment record into the database
         await conn.execute("""
@@ -53,9 +55,9 @@ async def populate_database():
             )
         """, apt["location"], apt["rooms"], apt["price"], apt["area"], apt["floor"],
              apt["beds"], apt["has_wifi"], apt["has_parking"], apt["has_kitchen"],
-             apt["description"], embedding)
+             apt["description"], embedding_str)
 
-    print(f"✅ Successfully inserted {len(apartments)} apartments into the database.")
+    print(f"\n🎉 Successfully inserted {len(apartments)} apartments into the database.")
     await conn.close()
 
 if __name__ == "__main__":

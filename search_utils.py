@@ -1,73 +1,134 @@
+from typing import List, Tuple
 import asyncpg
+from openai import OpenAI
 import os
-import json
 from dotenv import load_dotenv
+import logging
+import numpy as np
+import json
 
-# Load DB config from .env
+# Load environment variables
 load_dotenv()
 
-DB_SETTINGS = {
-    "user": os.getenv("POSTGRES_USER"),
-    "password": os.getenv("POSTGRES_PASSWORD"),
-    "database": os.getenv("POSTGRES_DB"),
-    "host": os.getenv("POSTGRES_HOST"),
-    "port": os.getenv("POSTGRES_PORT"),
+# Initialize OpenAI client
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Set up logging (console + file)
+logger = logging.getLogger("apartment_search")
+logger.setLevel(logging.INFO)
+
+console_handler = logging.StreamHandler()
+file_handler = logging.FileHandler("apartment_bot.log")
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+console_handler.setFormatter(formatter)
+file_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+logger.addHandler(file_handler)
+
+# Fields that can be used in SQL filters
+SQL_FIELDS = {
+    "location", "rooms", "beds", "area", "floor",
+    "price", "has_wifi", "has_parking", "has_kitchen",
+    "min_price", "max_price"
 }
 
-# Parse stringified JSON arguments (from GPT function_call.arguments)
-def parse_function_args(args_str: str) -> dict:
-    try:
-        return json.loads(args_str)
-    except Exception as e:
-        print(f"❌ Failed to parse function arguments: {e}")
-        return {}
-
-# Build SQL query with optional filters
-def build_sql_query(params: dict) -> (str, list):
+# Build SQL query and parameters based on filters
+def build_sql_query(filters: dict) -> Tuple[str, list]:
     sql = "SELECT * FROM apartments WHERE TRUE"
     values = []
 
-    if "location" in params:
-        sql += " AND location ILIKE $%d" % (len(values) + 1)
-        values.append(f"%{params['location']}%")
-    if "rooms" in params:
-        sql += " AND rooms = $%d" % (len(values) + 1)
-        values.append(params["rooms"])
-    if "has_wifi" in params:
-        sql += " AND has_wifi = $%d" % (len(values) + 1)
-        values.append(params["has_wifi"])
-    if "has_parking" in params:
-        sql += " AND has_parking = $%d" % (len(values) + 1)
-        values.append(params["has_parking"])
-    if "has_kitchen" in params:
-        sql += " AND has_kitchen = $%d" % (len(values) + 1)
-        values.append(params["has_kitchen"])
-    if "min_price" in params:
-        sql += " AND price >= $%d" % (len(values) + 1)
-        values.append(params["min_price"])
-    if "max_price" in params:
-        sql += " AND price <= $%d" % (len(values) + 1)
-        values.append(params["max_price"])
+    # Location filter
+    if "location" in filters:
+        sql += f" AND location ILIKE ${len(values) + 1}"
+        values.append(f"%{filters['location']}%")
 
-    sql += " ORDER BY price ASC LIMIT 5"
+    # Numeric filters
+    for field in ["rooms", "beds", "area", "floor", "price", "min_price", "max_price"]:
+        if field in filters:
+            operator = ">=" if field == "min_price" else "<=" if field in {"max_price", "price"} else "="
+            column = field if field not in ["min_price", "max_price"] else "price"
+            sql += f" AND {column} {operator} ${len(values) + 1}"
+            values.append(filters[field])
+
+    # Boolean filters
+    for field in ["has_wifi", "has_parking", "has_kitchen"]:
+        if field in filters:
+            sql += f" AND {field} IS {'TRUE' if filters[field] else 'FALSE'}"
+
+    sql += " ORDER BY price ASC LIMIT 20"
     return sql, values
 
-# Perform actual query and return matching apartments
-async def search_apartments(args_str: str) -> list:
-    params = parse_function_args(args_str)
-    if not params:
-        return []
+# Separate SQL filters from additional semantic properties
+def split_filters(filters: dict) -> Tuple[dict, List[str]]:
+    sql_filters = {}
+    extra_keys = []
+    for key, value in filters.items():
+        if key in SQL_FIELDS:
+            sql_filters[key] = value
+        else:
+            extra_keys.append(key)
+    return sql_filters, extra_keys
 
-    sql, values = build_sql_query(params)
+# Build text representation of filters for embedding query
+def filters_to_embedding_text(filters: dict) -> str:
+    parts = []
 
-    try:
-        conn = await asyncpg.connect(**DB_SETTINGS)
-        rows = await conn.fetch(sql, *values)
-        await conn.close()
+    # Include known booleans
+    for field in ["has_wifi", "has_parking", "has_kitchen"]:
+        if filters.get(field):
+            parts.append(field.replace("has_", "").replace("_", " "))
 
-        # Convert results to list of dicts
-        return [dict(row) for row in rows]
+    # Include numeric values
+    for field in ["beds", "rooms", "floor"]:
+        if field in filters:
+            parts.append(f"{filters[field]} {field}")
 
-    except Exception as e:
-        print(f"❌ Database query failed: {e}")
-        return []
+    # Include extra semantic fields
+    for key, value in filters.items():
+        if value and (key.startswith("has_") or key.startswith("allows_")) and key not in {"has_wifi", "has_parking", "has_kitchen"}:
+            parts.append(key.replace("has_", "").replace("allows_", "").replace("_", " "))
+
+    return ", ".join(parts)
+
+# Rerank apartments using cosine similarity (embedding-based)
+def rerank_by_vector_similarity(apartments: List[asyncpg.Record], query_vector: list, top_k: int = 3) -> List[asyncpg.Record]:
+    scored = []
+    for apt in apartments:
+        emb = apt["embedding"]
+        if isinstance(emb, str):
+            emb = json.loads(emb)
+        vec = np.array(emb, dtype=np.float32)
+        similarity = float(np.dot(query_vector, vec))
+        scored.append((similarity, apt))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [apt for _, apt in scored[:top_k]]
+
+# Main apartment search function: SQL filtering + PGVector rerank
+async def search_apartments(conn: asyncpg.Connection, filters: dict, query_text: str) -> List[asyncpg.Record]:
+    # Separate SQL and semantic filters
+    sql_filters, extra_keys = split_filters(filters)
+
+    # Build SQL query
+    sql_query, sql_values = build_sql_query(sql_filters)
+    logger.info(f"📄 SQL Query: {sql_query}")
+    logger.info(f"📦 SQL Params: {sql_values}")
+
+    # Execute SQL query
+    filtered_results = await conn.fetch(sql_query, *sql_values)
+    logger.info(f"🔢 SQL returned {len(filtered_results)} result(s)")
+
+    # Convert filters into text input for embedding
+    embedding_input = filters_to_embedding_text(filters)
+    logger.info(f"🧠 Embedding input text: {embedding_input}")
+
+    # Get embedding vector from OpenAI
+    response = client.embeddings.create(
+        input=embedding_input,
+        model="text-embedding-3-small"
+    )
+    query_vector = response.data[0].embedding
+
+    # Rerank SQL results using PGVector similarity
+    top_results = rerank_by_vector_similarity(filtered_results, query_vector, top_k=3)
+    logger.info(f"🏁 Returning top-{len(top_results)} from SQL + PGVector rerank")
+    return top_results
