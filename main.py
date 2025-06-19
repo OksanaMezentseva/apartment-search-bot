@@ -1,18 +1,28 @@
 import os
-import asyncio
 import asyncpg
 import logging
-from aiogram import Bot, Dispatcher, F
-from aiogram.types import Message
-from aiogram.enums import ParseMode
+import streamlit as st
+import asyncio
+import nest_asyncio
 from dotenv import load_dotenv
 from openai_client import extract_apartment_query
 from search_utils import search_apartments
 
-# Load environment variables
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Allow nested async loops (required for Streamlit + asyncpg)
+nest_asyncio.apply()
 
+# Load environment variables from .env
+load_dotenv()
+
+# Set up logging
+logger = logging.getLogger("streamlit_bot")
+logger.setLevel(logging.INFO)
+console_handler = logging.StreamHandler()
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+console_handler.setFormatter(formatter)
+logger.addHandler(console_handler)
+
+# Database connection settings
 DB_SETTINGS = {
     "user": os.getenv("POSTGRES_USER"),
     "password": os.getenv("POSTGRES_PASSWORD"),
@@ -21,102 +31,101 @@ DB_SETTINGS = {
     "port": os.getenv("POSTGRES_PORT"),
 }
 
-# Setup logger (console + file)
-logger = logging.getLogger("telegram_bot")
-logger.setLevel(logging.INFO)
-
-console_handler = logging.StreamHandler()
-file_handler = logging.FileHandler("apartment_bot.log")
-
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-console_handler.setFormatter(formatter)
-file_handler.setFormatter(formatter)
-
-logger.addHandler(console_handler)
-logger.addHandler(file_handler)
-
-# Initialize Telegram Bot
-bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
-dp = Dispatcher()
-
-# Format apartment listing nicely for Telegram
+# Format apartment details into readable message
 def format_apartment(apartment: dict) -> str:
     return (
-        f"<b>📍 Location:</b> {apartment['location']}\n"
-        f"<b>🛏️ Rooms:</b> {apartment['rooms']} | <b>Beds:</b> {apartment['beds']}\n"
-        f"<b>📐 Area:</b> {apartment['area']:.1f} m² | <b>Floor:</b> {apartment['floor']}\n"
-        f"<b>💵 Price:</b> ${round(apartment['price'], 2)} per night\n"
-        f"<b>📶 Wi-Fi:</b> {'Yes' if apartment['has_wifi'] else 'No'}\n"
-        f"<b>🅿️ Parking:</b> {'Yes' if apartment['has_parking'] else 'No'}\n"
-        f"<b>🍽️ Kitchen:</b> {'Yes' if apartment['has_kitchen'] else 'No'}\n\n"
-        f"<i>{apartment['description']}</i>"
+        f"📍 **Location:** {apartment['location']}\n"
+        f"🛏️ **Rooms:** {apartment['rooms']} | **Beds:** {apartment['beds']}\n"
+        f"📐 **Area:** {apartment['area']:.1f} m² | **Floor:** {apartment['floor']}\n"
+        f"💵 **Price:** ${round(apartment['price'], 2)} per night\n"
+        f"📶 **Wi-Fi:** {'Yes' if apartment['has_wifi'] else 'No'}\n"
+        f"🅿️ **Parking:** {'Yes' if apartment['has_parking'] else 'No'}\n"
+        f"🍽️ **Kitchen:** {'Yes' if apartment['has_kitchen'] else 'No'}\n\n"
+        f"_{apartment['description']}_"
     )
 
-# Handle /start command
-@dp.message(F.text == "/start")
-async def handle_start(message: Message):
-    await message.answer("👋 Hi! I can help you find an apartment.\n\n"
-        "💡 To get the best results, please include in your message:\n"
-        "📍 City or location (e.g. Lviv, Kyiv)\n"
-        "🛏️ Number of rooms or beds\n"
-        "⚙️ Important features (Wi-Fi, kitchen, parking, pool, etc.)\n"
-        "🐾 Preferences (pet-friendly, balcony, jacuzzi, near park, etc.)\n\n"
-        "📝 Example: 'Looking for an apartment in Lviv with 2 rooms, Wi-Fi, and parking.'"
-    )
+# Async helper for running search
+async def handle_apartment_search(filters: dict) -> list:
+    conn = await asyncpg.connect(**DB_SETTINGS)
+    try:
+        apartments = await search_apartments(conn, filters, filters)
+    finally:
+        await conn.close()
+    return apartments
 
-# Handle user messages
-@dp.message(F.text)
-async def handle_user_request(message: Message):
-    user_query = message.text
+# Streamlit page configuration
+st.set_page_config(page_title="Apartment Finder Bot")
+st.title("🏠 Apartment Search Assistant")
 
-    # Step 1: Extract filters from GPT
-    result = await extract_apartment_query(user_query)
-    logger.info(f"🧠 GPT Function Result:\n{result}")
+# Initialize session state
+if "chat" not in st.session_state:
+    st.session_state.chat = []
+
+if "trigger_search" not in st.session_state:
+    st.session_state.trigger_search = False
+
+if "user_input" not in st.session_state:
+    st.session_state.user_input = ""
+
+# Chat input field
+user_input = st.chat_input("Describe the apartment you're looking for...")
+
+# If user submits input, store and trigger search
+if user_input:
+    st.session_state.user_input = user_input
+    st.session_state.trigger_search = True
+
+# Process search if triggered
+if st.session_state.trigger_search:
+    st.session_state.trigger_search = False
+    query = st.session_state.user_input
+    st.session_state.chat.append(("user", query))
+    st.chat_message("user").markdown(query)
+
+    # Step 1: Extract apartment filters
+    with st.spinner("🤖 Processing your request..."):
+        result = asyncio.run(extract_apartment_query(query))
+
+    logger.info(f"GPT Result: {result}")
 
     if not result:
-        await message.answer(
-            "❌ I couldn't understand your request.\n\n"
-            "💡 To help me find the right apartment, try to include:\n"
-            "• City or location (e.g. Lviv, Kyiv)\n"
-            "• Number of rooms or beds\n"
-            "• Key features (Wi-Fi, kitchen, parking, pool, etc.)\n"
-            "• Special preferences (pet-friendly, balcony, jacuzzi, etc.)\n\n"
-            "Feel free to write in your own words — I'll do my best to understand!"
-                )
-        return
+        assistant_msg = (
+            "❌ I couldn't understand your request.\n"
+            "Please try to include:\n"
+            "- City or location (e.g., Lviv, Kyiv)\n"
+            "- Number of rooms or beds\n"
+            "- Desired amenities (Wi-Fi, kitchen, parking, pets, etc.)"
+        )
+        st.session_state.chat.append(("assistant", assistant_msg))
+        st.chat_message("assistant").markdown(assistant_msg)
+    else:
+        filters = result["arguments"]
+        logger.info(f"Filters passed to DB search: {filters}")
 
-    filters = result["arguments"]
-    logger.info(f"📥 Filters passed to DB search:\n{filters}")
+        try:
+            apartments = asyncio.run(handle_apartment_search(filters))
+        except Exception as e:
+            logger.exception("❌ Database error")
+            assistant_msg = "⚠️ An error occurred while accessing the database."
+            st.session_state.chat.append(("assistant", assistant_msg))
+            st.chat_message("assistant").markdown(assistant_msg)
+            apartments = []
 
-    try:
-        # Step 2: Connect to DB
-        conn = await asyncpg.connect(**DB_SETTINGS)
+        if not apartments:
+            no_result_msg = "🔍 No apartments matched your request."
+            st.session_state.chat.append(("assistant", no_result_msg))
+            st.chat_message("assistant").markdown(no_result_msg)
+        else:
+            found_msg = f"🏘️ Found {len(apartments)} apartment(s) matching your request:"
+            st.session_state.chat.append(("assistant", found_msg))
+            st.chat_message("assistant").markdown(found_msg)
 
-        # Step 3: Search apartments (structured + fallback logic inside)
-        apartments = await search_apartments(conn, filters, filters)
-        await conn.close()
+            for apt in apartments:
+                text = format_apartment(apt)
+                st.session_state.chat.append(("assistant", text))
+                st.chat_message("assistant").markdown(text)
 
-    except Exception as e:
-        logger.exception("❌ Database error occurred")
-        await message.answer("⚠️ Something went wrong while accessing the database.")
-        return
-
-    # Step 4: Reply to user
-    if not apartments:
-        logger.warning("🔍 No apartments matched after SQL and vector search")
-        await message.answer("🔎 We couldn't find any apartments that match your request.")
-        return
-
-    # Step 5: Show result depending on match count
-    await message.answer(
-    f"🏘️ Found {len(apartments)} apartment(s) that match your request:"
-    )
-
-    for apt in apartments:
-        text = format_apartment(apt)
-        await message.answer(text)
-
-# Start polling
-if __name__ == "__main__":
-    logger.info("🤖 Bot started")
-    asyncio.run(dp.start_polling(bot))
+# Display full chat history
+for role, msg in st.session_state.chat:
+    if role in {"user", "assistant"}:
+        st.chat_message(role).markdown(msg)

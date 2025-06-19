@@ -3,3 +3,5 @@ asyncpg           # Asynchronous PostgreSQL driver
 pgvector          # Integration with PGVector for vector search
 openai            # OpenAI API client for embedding generation
 python-dotenv      # Load environment variables from .env file
+nest_asyncio      # Allow nested event loops in Jupyter notebooks
+streamlit         # Web app framework for building the UI
