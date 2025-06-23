@@ -16,9 +16,11 @@ DB_SETTINGS = {
 }
 
 # SQL commands to initialize database
-CREATE_SQL = """
+CREATE_EXTENSION_SQL = """
 CREATE EXTENSION IF NOT EXISTS vector;
+"""
 
+CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS apartments (
     id SERIAL PRIMARY KEY,
     location TEXT,
@@ -33,20 +35,39 @@ CREATE TABLE IF NOT EXISTS apartments (
     description TEXT,
     embedding VECTOR(1536)
 );
+"""
 
+CREATE_INDEX_SQL = """
+-- Drop old index if exists (optional cleanup)
 DROP INDEX IF EXISTS idx_embedding_cosine;
-CREATE INDEX idx_embedding_cosine
-ON apartments USING ivfflat (embedding vector_cosine_ops)
-WITH (lists = 100);
+
+-- Create new vector index if not exists
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE indexname = 'idx_embedding_cosine'
+    ) THEN
+        CREATE INDEX idx_embedding_cosine
+        ON apartments USING ivfflat (embedding vector_cosine_ops)
+        WITH (lists = 100);
+    END IF;
+END$$;
 """
 
 async def init_db():
-    # Connect to the PostgreSQL database
     conn = await asyncpg.connect(**DB_SETTINGS)
-    # Execute the SQL initialization
-    await conn.execute(CREATE_SQL)
-    print("✅ Database initialized: extension, table, and vector index created.")
+
+    # Create extension
+    await conn.execute(CREATE_EXTENSION_SQL)
+
+    # Create table if not exists
+    await conn.execute(CREATE_TABLE_SQL)
+
+    # Create index if not exists
+    await conn.execute(CREATE_INDEX_SQL)
+
     await conn.close()
+    print("✅ Database initialized: extension, table, and index")
 
 if __name__ == "__main__":
     asyncio.run(init_db())
