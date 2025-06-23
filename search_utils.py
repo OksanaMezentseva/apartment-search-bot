@@ -32,6 +32,37 @@ SQL_FIELDS = {
     "min_price", "max_price"
 }
 
+# Patterns to reject incompatible apartments based on text
+NEGATION_PATTERNS = {
+    "allows_pets": [
+        "no pets",
+        "pets are not allowed",
+        "not pet-friendly",
+        "pets prohibited"
+    ],
+    "has_pool": [
+        "no pool",
+        "pool not available"
+    ],
+    "allows_smoking": [
+        "no smoking",
+        "smoking not allowed",
+        "non-smoking",
+        "smoke-free"
+    ],
+    "allows_parties": [
+        "no parties",
+        "parties not allowed",
+        "no alcohol"
+    ],
+    "allows_children": [
+        "no children",
+        "children not allowed",
+        "not suitable for children",
+        "no kids"
+    ]
+}
+
 # Build SQL query and parameters based on filters
 def build_sql_query(filters: dict) -> Tuple[str, list]:
     sql = "SELECT * FROM apartments WHERE TRUE"
@@ -115,6 +146,17 @@ def rerank_by_vector_similarity(apartments: List[asyncpg.Record], query_vector: 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [apt for _, apt in scored[:top_k]]
 
+# Post-filter apartments to remove logically incompatible results
+def reject_if_negated(apartment, filters) -> bool:
+    desc = apartment["description"].lower()
+
+    for key, patterns in NEGATION_PATTERNS.items():
+        if filters.get(key) is True:
+            for p in patterns:
+                if p in desc:
+                    return True
+    return False
+
 # Main apartment search function: SQL filtering + PGVector rerank
 async def search_apartments(conn: asyncpg.Connection, filters: dict, query_text: str) -> List[asyncpg.Record]:
     # Separate SQL and semantic filters
@@ -141,6 +183,10 @@ async def search_apartments(conn: asyncpg.Connection, filters: dict, query_text:
     query_vector = response.data[0].embedding
 
     # Rerank SQL results using PGVector similarity
-    top_results = rerank_by_vector_similarity(filtered_results, query_vector, top_k=3)
-    logger.info(f"🏁 Returning top-{len(top_results)} from SQL + PGVector rerank")
-    return top_results
+    top_results = rerank_by_vector_similarity(filtered_results, query_vector, top_k=10)
+
+    # Apply post-filter to reject logically incompatible results
+    filtered_top_results = [apt for apt in top_results if not reject_if_negated(apt, filters)]
+
+    logger.info(f"🏁 Returning top-{len(filtered_top_results)} after post-filtering")
+    return filtered_top_results[:3]  # Limit to top N

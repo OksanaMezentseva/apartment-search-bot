@@ -1,88 +1,121 @@
-# 🏡 Telegram Apartment Search Bot
+# 🏡 Apartment Search Bot
 
-This is a Telegram bot that helps users find apartments based on structured filters (location, price, rooms, etc.) or unstructured text descriptions. The bot supports both SQL-based filtering and semantic reranking using OpenAI embeddings and PGVector.
+A simple chatbot powered by **Streamlit**, **OpenAI embeddings**, and **PostgreSQL + PGVector** to help users find apartments by describing them in natural language.
+
+---
 
 ## 🚀 Features
 
-* 🔍 Search apartments by location, price, rooms, beds, etc.
-* ✅ Filter by amenities: Wi-Fi, kitchen, parking, balcony, jacuzzi, pet-friendly
-* 🧠 Semantic search using OpenAI embeddings + PGVector
-* 📦 PostgreSQL database with vector support
-* 🤖 Telegram interface using `aiogram`
-* 🐳 Dockerized for easy deployment
+* 🔍 Search by structured fields: location, rooms, beds, price, etc.
+* 🐾 Understands soft constraints like “pet-friendly”, “with a pool”, “no smoking”
+* 🧐 Semantic reranking with OpenAI + PGVector
+* ⚡️ Chat interface via Streamlit
+* 🐿️ Runs locally with Docker (PostgreSQL inside container)
 
-## ⚙️ Technologies
+---
+
+## ⚙️ Technologies Used
 
 * Python 3.10+
+* [Streamlit](https://streamlit.io/)
 * [OpenAI API](https://platform.openai.com/)
-* PostgreSQL + PGVector
+* PostgreSQL + [PGVector](https://github.com/pgvector/pgvector)
 * AsyncPG
-* aiogram
 * Docker + Docker Compose
+
+---
 
 ## 🧱 Project Structure
 
 ```
 .
-├── main.py                  # Telegram bot logic
-├── search_utils.py          # SQL builder + PGVector rerank logic
-├── openai_client.py         # OpenAI client setup
-├── init_db.py               # Table creation and extension setup
-├── populate_db_from_json.py # Insert apartments into DB from JSON
-├── create_index.py          # Create PGVector index
-├── docker-compose.yml
-├── requirements.txt
-├── .env                     # API keys and DB config
-└── README.md
+├── db/
+│ ├── generated_apartments.json # Apartment dataset
+│ ├── init_db.py # Table + PGVector extension creation
+│ └── populate_db_from_json.py # Insert apartments and generate embeddings
+├── main.py # Streamlit chatbot UI
+├── openai_client.py # GPT function-calling extraction logic
+├── search_utils.py # SQL + PGVector rerank logic
+├── docker-compose.yml # Docker setup for PostgreSQL
+├── requirements.txt # Python dependencies
+├── .env # Local environment config (not in repo)
+├── .env.example # Template environment file
+├── .gitignore # Files to ignore in Git
+├── apartment_bot.log # Runtime logs
+└── README.md # Project overview and setup
 ```
 
-## 🐳 Getting Started
+---
 
-### 1. Create `.env`
+## 🐿️ Getting Started
+
+### 1. Create `.env` file
+
+Create a `.env` file in the project root with the following contents:
 
 ```
-OPENAI_API_KEY=...
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-POSTGRES_DB=apartments
+OPENAI_API_KEY=your_openai_key_here
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-BOT_TOKEN=your_telegram_bot_token
+POSTGRES_DB=apartments_db
+POSTGRES_USER=admin
+POSTGRES_PASSWORD=admin
 ```
 
-### 2. Start with Docker
+### 2. Start PostgreSQL with Docker
 
 ```bash
-docker-compose up --build
+docker-compose up -d
 ```
 
-### 3. Initialize the database
+This will launch a local PostgreSQL container with pgvector enabled.
+
+---
+
+### 3. Initialize the Database
+
+Create the `apartments` table and PGVector index:
 
 ```bash
 python init_db.py
 ```
 
-### 4. Populate with apartments
+---
+
+### 4. Populate the Database
+
+Insert apartment listings from JSON and generate OpenAI embeddings:
 
 ```bash
 python populate_db_from_json.py
 ```
 
-### 5. Run the bot
+---
+
+### 5. Launch the Chatbot
+
+Start the Streamlit app:
 
 ```bash
-python main.py
+streamlit run main.py
 ```
 
-## 📨 Example Queries
+Then open [http://localhost:8501](http://localhost:8501) in your browser.
 
-* `Apartment in Lviv with 2 rooms and a balcony`
-* `Pet-friendly studio in Kyiv with a jacuzzi`
-* `Flat near city center with parking and Wi-Fi`
+---
 
+## 💬 Example Prompts
 
-## 📢 Author
+* `Looking for a pet-friendly apartment in Kyiv with 2 beds`
+* `I need a studio in Odesa with a pool and no kitchen`
+* `Family-friendly flat in Lviv, no smoking, parking included`
+* `Spacious apartment near city center with balcony and Wi-Fi`
 
-👩‍💻 [Oksana Mezentseva](https://github.com/OksanaMezentseva)
+---
 
-> This is a pet project to explore PGVector, OpenAI API, and building helpful Telegram bots.
+## 👩‍💼 Author
+
+Oksana Mezentseva
+GitHub: [@OksanaMezentseva](https://github.com/OksanaMezentseva)
+
+> A pet project to explore vector search with OpenAI + PGVector + Streamlit for real-world NLP use cases.

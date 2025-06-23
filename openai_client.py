@@ -48,11 +48,9 @@ function_definitions = [
 
 # System message to guide GPT behavior
 SYSTEM_PROMPT = (
-    "You are a function-calling assistant that helps users search for apartments. "
-    "Always call the function 'search_apartments' and include all relevant fields. "
-    "If the user mentions any extra features like 'pool', 'balcony', 'pets', or others not defined in the schema, "
-    "just add them directly as boolean fields, like 'has_pool': true, 'allows_pets': false. "
-    "Do NOT use 'extra_fields' or any other nested structure."
+    "You help users search for apartments. Always call 'search_apartments'. "
+    "Extract fields like location, rooms, price, etc. "
+    "Also allow custom booleans like 'has_pool': true, 'allows_pets': false."
 )
 
 # Run GPT function extraction
@@ -66,7 +64,8 @@ async def extract_apartment_query(user_input: str):
             {"role": "user", "content": user_input}
         ],
         functions=function_definitions,
-        function_call="auto"  # Let GPT decide if the function should be called
+        function_call="auto",  # Let GPT decide if the function should be called
+        max_tokens=300
     )
 
     logger.info("📩 GPT response received")

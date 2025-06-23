@@ -1,4 +1,3 @@
-aiogram            # Telegram bot framework
 asyncpg           # Asynchronous PostgreSQL driver
 pgvector          # Integration with PGVector for vector search
 openai            # OpenAI API client for embedding generation
