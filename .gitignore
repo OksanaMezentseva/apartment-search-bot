@@ -29,3 +29,6 @@ dist/
 
 # macOS
 .DS_Store
+
+# DB marker file
+.db-initialized

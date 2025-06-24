@@ -1,11 +1,21 @@
 #!/bin/bash
 
-# Initialize DB only once
-if [ ! -f "/.db-initialized" ]; then
+INIT_FLAG="/app/.db-initialized"
+
+# Initialize DB only once — but only if scripts succeed
+if [ ! -f "$INIT_FLAG" ]; then
   echo "📦 Initializing database..."
-  python db/init_db.py
-  python db/populate_db_from_json.py
-  touch /.db-initialized
+  echo "⏳ Waiting for DB to be ready..."
+  sleep 5
+
+  # Run init_db and populate — and exit on failure
+  if python db/init_db.py && python db/populate_db_from_json.py; then
+    echo "✅ DB initialized"
+    touch "$INIT_FLAG"
+  else
+    echo "❌ DB setup failed. Will retry next time."
+    exit 1
+  fi
 else
   echo "✅ Database already initialized. Skipping DB setup."
 fi

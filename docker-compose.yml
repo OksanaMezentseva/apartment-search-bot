@@ -14,7 +14,7 @@ services:
       - pgdata:/var/lib/postgresql/data
 
   app:
-    build: .  # Build from Dockerfile in root
+    build: .
     container_name: streamlit-bot
     depends_on:
       - db
@@ -28,5 +28,8 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: 5432
     volumes:
-      - .:/app  # So entrypoint.sh and source code are accessible
-    working_dir: /app  # Make sure we’re in correct directory for entrypoint
+      - .:/app
+    working_dir: /app
+
+volumes:
+  pgdata:

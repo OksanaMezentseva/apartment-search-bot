@@ -55,7 +55,19 @@ END$$;
 """
 
 async def init_db():
-    conn = await asyncpg.connect(**DB_SETTINGS)
+    conn = None
+
+    # Retry loop for database connection
+    for i in range(10):
+        try:
+            conn = await asyncpg.connect(**DB_SETTINGS)
+            print(f"✅ Connected to DB (attempt {i+1})")
+            break
+        except Exception as e:
+            print(f"❌ DB not ready (attempt {i+1}): {e}")
+            await asyncio.sleep(2)
+    else:
+        raise RuntimeError("❌ Could not connect to database after 10 attempts")
 
     # Create extension
     await conn.execute(CREATE_EXTENSION_SQL)

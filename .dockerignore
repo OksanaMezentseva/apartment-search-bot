@@ -1,0 +1,26 @@
+# Python compiled files
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environments
+venv/
+.env
+
+# Git and logs
+.git
+.gitignore
+*.log
+
+# IDE configs
+.vscode/
+.idea/
+
+# Local Docker marker
+.db-initialized
+
+# Cache/data/temp
+*.sqlite
+*.db
+.DS_Store
+*.bak
